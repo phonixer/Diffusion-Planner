@@ -35,8 +35,8 @@ def get_args():
     parser.add_argument('--save_dir', type=str, help='save dir for model ckpt', default=".")
 
     # Data
-    parser.add_argument('--train_set', type=str, help='path to train data', default=None)
-    parser.add_argument('--train_set_list', type=str, help='data list of train data', default=None)
+    parser.add_argument('--train_set', type=str, help='path to train data', default='cache')
+    parser.add_argument('--train_set_list', type=str, help='data list of train data', default='diffusion_planner_training_10set.json')
 
     parser.add_argument('--future_len', type=int, help='number of time point', default=80)
     parser.add_argument('--time_len', type=int, help='number of time point', default=21)
@@ -162,7 +162,7 @@ def model_training(args):
     if args.ddp:
         diffusion_planner = DDP(diffusion_planner, device_ids=[rank])
 
-    if args.use_ema:
+    if args.use_ema: #作用：指数移动平均，提高模型稳定性和泛化性能
         model_ema = ModelEma(
             diffusion_planner,
             decay=0.999,
@@ -176,6 +176,7 @@ def model_training(args):
     params = [{'params': ddp.get_model(diffusion_planner, args.ddp).parameters(), 'lr': args.learning_rate}]
 
     optimizer = optim.AdamW(params)
+    # 学习率调度
     scheduler = CosineAnnealingWarmUpRestarts(optimizer, train_epochs, args.warm_up_epoch)
 
     if args.resume_model_path is not None:
@@ -191,10 +192,11 @@ def model_training(args):
     if args.ddp:
         torch.distributed.barrier()
 
-    # begin training
+    # begin training 核心训练流程
     for epoch in range(init_epoch, train_epochs):
         if global_rank == 0:
             print(f"Epoch {epoch+1}/{train_epochs}")
+            # 执行一个epoch的训练
         train_loss, train_total_loss = train_epoch(train_loader, diffusion_planner, optimizer, args, model_ema, aug)
         
 
