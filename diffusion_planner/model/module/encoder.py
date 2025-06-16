@@ -12,12 +12,17 @@ class Encoder(nn.Module):
 
         self.hidden_dim = config.hidden_dim
 
+        # 计算总token数量 = 代理数量 + 静态物体数量 + 车道数量。
         self.token_num = config.agent_num + config.static_objects_num + config.lane_num
 
+        # 初始化邻近代理编码器，处理周围动态物体（如其他车辆）。
         self.neighbor_encoder = AgentFusionEncoder(config.time_len, drop_path_rate=config.encoder_drop_path_rate, hidden_dim=config.hidden_dim, depth=config.encoder_depth)
+        # 初始化静态物体编码器，处理不移动的物体（如停放的车辆）。
         self.static_encoder = StaticFusionEncoder(config.static_objects_state_dim, drop_path_rate=config.encoder_drop_path_rate, hidden_dim=config.hidden_dim)
+        # 初始化车道编码器，处理道路几何信息。
         self.lane_encoder = LaneFusionEncoder(config.lane_len, drop_path_rate=config.encoder_drop_path_rate, hidden_dim=config.hidden_dim, depth=config.encoder_depth)
-    
+
+        # 初始化融合编码器，将所有特征组合在一起。
         self.fusion = FusionEncoder(
             hidden_dim=config.hidden_dim, 
             num_heads=config.num_heads, 
@@ -27,12 +32,14 @@ class Encoder(nn.Module):
         )
 
         # position embedding encode x, y, cos, sin, type
+        # 位置嵌入层，将7维位置信息（x, y, cos, sin, type等）映射到隐藏维度空间。
         self.pos_emb = nn.Linear(7, config.hidden_dim)
 
     def forward(self, inputs):
-
+        # 前向传播函数，初始化输出字典。
         encoder_outputs = {}
-
+        
+        # 从输入中提取各类数据：邻近代理历史、静态物体、车道、车道限速信息。
         # agents
         neighbors = inputs['neighbor_agents_past']
 
@@ -44,6 +51,7 @@ class Encoder(nn.Module):
         lanes_speed_limit = inputs['lanes_speed_limit']
         lanes_has_speed_limit = inputs['lanes_has_speed_limit']
 
+        # 获取批次大小。
         B = neighbors.shape[0]
 
         encoding_neighbors, neighbors_mask, neighbor_pos = self.neighbor_encoder(neighbors)
@@ -56,8 +64,8 @@ class Encoder(nn.Module):
         encoding_mask = torch.cat([neighbors_mask, static_mask, lanes_mask], dim=1).view(-1)
         encoding_pos = self.pos_emb(encoding_pos[~encoding_mask])
         encoding_pos_result = torch.zeros((B * self.token_num, self.hidden_dim), device=encoding_pos.device)
-        encoding_pos_result[~encoding_mask] = encoding_pos  # Fill in valid parts
-
+        encoding_pos_result[~encoding_mask] = encoding_pos  # Fill in valid parts 创建一个全零张量，并将处理过的位置嵌入填入有效位置。
+        
         encoding_input = encoding_input + encoding_pos_result.view(B, self.token_num, -1)
 
         encoder_outputs['encoding'] = self.fusion(encoding_input, encoding_mask.view(B, self.token_num))

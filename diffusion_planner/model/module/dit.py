@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 from timm.models.layers import Mlp
 
-def modulate(x, shift, scale, only_first=False):
-    if only_first:
+def modulate(x, shift, scale, only_first=False): # 特征调制x = x * (1 + scale) + shift
+    if only_first:                               # 只对第一个特征进行调制
         x_first, x_rest = x[:, :1], x[:, 1:]
         x = torch.cat([x_first * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1), x_rest], dim=1)
     else:
@@ -66,6 +66,7 @@ class TimestepEmbedder(nn.Module):
 class DiTBlock(nn.Module):
     """
     A DiT block with adaptive layer norm zero (adaLN-Zero) conditioning for ego and Cross-Attention.
+    DiTBlock类实现了带有自适应层归一化(adaLN-Zero)条件的Diffusion Transformer块:
     """
     def __init__(self, dim=192, heads=6, dropout=0.1, mlp_ratio=4.0):
         super().__init__()
