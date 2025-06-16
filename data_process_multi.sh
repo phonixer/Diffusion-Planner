@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16           # 申请调用CPU线程数
-#SBATCH --nodelist=3090node2
+#SBATCH --nodelist=3090node3
 #SBATCH --output=log/output.log              # 标准输出文件
 #SBATCH --error=log/error.log                # 错误输出文件
 ###################################
@@ -17,7 +17,32 @@ source /mnt/slurmfs-4090node1/homes/rzhong151/anaconda3/bin/activate diffusion_p
 TRAIN_SET_PATH="/mnt/slurmfs-4090node2/user_data/mpeng060/diffusion_planner/train_data" # preprocess training data
 ###################################
 
-python data_process.py \
---save_path $TRAIN_SET_PATH \
---total_scenarios 1000000 \
+TOTAL_SCENARIOS=1000000
+NUM_PROCESSES=80
+
+# Calculate scenarios per process
+SCENARIOS_PER_PROCESS=$((TOTAL_SCENARIOS / NUM_PROCESSES))
+
+# Create log directory
+mkdir -p log
+
+# Run multiple processes in parallel
+for i in $(seq 0 $((NUM_PROCESSES - 1))); do
+    START_INDEX=$((i * SCENARIOS_PER_PROCESS))
+    END_INDEX=$((START_INDEX + SCENARIOS_PER_PROCESS))
+    
+    # Run each process with its own log files
+    python data_process.py \
+        --save_path $TRAIN_SET_PATH \
+        --total_scenarios $SCENARIOS_PER_PROCESS \
+        --start_index $START_INDEX \
+        --end_index $END_INDEX \
+        --checkpoint_interval 1000 \
+        > log/process_${i}.log 2>&1 &
+done
+
+# Wait for all processes to complete
+wait
+
+echo "All processes completed"
 

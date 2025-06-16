@@ -37,12 +37,9 @@ def get_filter_parameters(num_scenarios_per_type=None, limit_total_scenarios=Non
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from tqdm import tqdm
+import multiprocessing
 
-def process_chunk(scenarios_chunk, config):
-    # 每个子进程重新创建一个 DataProcessor 实例
-    processor = DataProcessor(config)
-    processor.work(scenarios_chunk)
-    return len(scenarios_chunk)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Data Processing')
@@ -62,7 +59,13 @@ if __name__ == "__main__":
 
     parser.add_argument('--route_len', type=int, help='number of route lane point', default=20)
     parser.add_argument('--route_num', type=int, help='number of route lanes', default=25)
+        # Add new arguments for multi-processing
+    parser.add_argument('--start_index', type=int, default=0, help='start index of scenarios')
+    parser.add_argument('--end_index', type=int, default=None, help='end index of scenarios')
+    parser.add_argument('--checkpoint_interval', type=int, default=100, help='interval to force gc collection')
+    
     args = parser.parse_args()
+
 
     # create save folder
     os.makedirs(args.save_path, exist_ok=True)
@@ -85,54 +88,23 @@ if __name__ == "__main__":
     scenarios = builder.get_scenarios(scenario_filter, worker)
     print(f"Total number of scenarios: {len(scenarios)}")
 
-    # # process data
-    # del worker, builder, scenario_filter
-    # processor = DataProcessor(args)
-    # processor.work(scenarios)
 
-    num_workers = num_workers  # 你机器上可用的核心数或 SLURM --ntasks-per-node
-    
-    # 把 scenarios 列表等分成 num_workers 份
-    chunks = [
-        scenarios[i::num_workers]
-        for i in range(num_workers)
-    ]
 
-    def split_list_evenly(lst, num_chunks):
-        """将列表尽可能平均分成num_chunks份"""
-        chunk_size = len(lst) // num_chunks
-        remainder = len(lst) % num_chunks
-        
-        chunks = []
-        start = 0
-        for i in range(num_chunks):
-            # 前remainder个chunk多分配1个元素
-            current_chunk_size = chunk_size + (1 if i < remainder else 0)
-            end = start + current_chunk_size
-            chunks.append(lst[start:end])
-            start = end
-            
-        return chunks
+    # Process subset of scenarios based on start/end index
+    if args.end_index is None:
+        args.end_index = len(scenarios)
+    scenarios_subset = scenarios[args.start_index:args.end_index]
+    print(f"Processing scenarios from index {args.start_index} to {args.end_index}")
 
-    chunks = split_list_evenly(scenarios, num_workers)
-    print("分块情况:")
-    for i, chunk in enumerate(chunks):
-        print(f"Worker {i}: {len(chunk)} scenarios")
-    print(f"总计: {sum(len(chunk) for chunk in chunks)} scenarios")
+    # Process data
+    processor = DataProcessor(args)
+    processor.work(scenarios_subset)
 
-    with ProcessPoolExecutor(max_workers=num_workers) as exe:
-        # partial 绑定 config，tqdm 用于进度显示
-        func = partial(process_chunk, config=args)
-        for processed in exe.map(func, chunks):
-            pass
-    
-
+    print(f"Processed {len(scenarios_subset)} scenarios")
     npz_files = [f for f in os.listdir(args.save_path) if f.endswith('.npz')]
 
-
-
-    # Save the list to a JSON file
+    # 保存文件列表到JSON
     with open('./diffusion_planner_training.json', 'w') as json_file:
         json.dump(npz_files, json_file, indent=4)
 
-    print(f"Saved {len(npz_files)} .npz file names")
+    print(f"保存了 {len(npz_files)} 个 .npz 文件名")

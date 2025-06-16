@@ -14,3 +14,4 @@ checkpoints/
 chrome-linux64/*
 chromedriver-linux64/*
 *.zip
+*.log
